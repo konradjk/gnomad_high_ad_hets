@@ -127,6 +127,37 @@ def main(args):
             with hl.hadoop_open(f'{public_root}/contamination_linregs_all_variants_{data_type}.pckl', 'wb') as f:
                 pickle.dump(data, f)
 
+    if args.recompute_ccr5_homozygosity:
+        hts = []
+        for data_type in ('genomes', 'exomes'):
+            mt = get_gnomad_data(data_type, adj=True, release_samples=True, raw=True, split=False)
+            mt = mt.filter_rows(mt.locus == hl.parse_locus('3:46414943', 'GRCh37')).select_entries('GT', 'AD', 'DP', 'GQ', 'PL')
+            mt = mt.checkpoint(f'{temp_root}/ccr5_{data_type}.mt', overwrite=args.overwrite, _read_if_exists=not args.overwrite)
+            mt = hl.filter_alleles_hts(mt, lambda allele, _: hl.is_indel(mt.alleles[0], allele), subset=True)
+            mt = annotate_adj(mt)
+            mt = mt.select_cols(pop=hl.or_else(mt.meta.subpop, mt.meta.pop)).select_rows()
+            hts.append(mt.entries())
+
+        ht = hts[0].union(hts[1])
+        ht = ht.filter(hl.array(['fin', 'nwe', 'onf', 'swe', 'est']).contains(ht.pop))
+        ht = ht.union(ht.annotate(pop='all'))
+
+        annotations = {
+            'reported': hl.agg.call_stats(ht.GT, 2),
+            'actual': hl.agg.call_stats(hl.cond(ht.GT.is_het() & (ht.AD[1] / ht.DP > 0.9), hl.call(1, 1), ht.GT), 2)
+        }
+        ht = ht.group_by(ht.pop).aggregate(**annotations)
+        ht = ht.annotate(
+            **{f'{ann}_expected_homs': ht[ann].AN * (ht[ann].AF[1] ** 2) / 2 for ann in annotations.keys()}
+        )
+        ht = ht.annotate(
+            **{f'{ann}_bi': ht[ann].homozygote_count[1] / ht[f'{ann}_expected_homs'] for ann in annotations.keys()}
+        )
+        ht = ht.checkpoint(f'{temp_root}/ccr5_results.ht', overwrite=args.overwrite, _read_if_exists=not args.overwrite)
+        ht.select(reported_homs=ht.reported.homozygote_count[1], actual_homs=ht.actual.homozygote_count[1],
+                  reported_AF=ht.reported.AF[1], actual_AF=ht.actual.AF[1],
+                  reported_expected_homs=ht.reported_expected_homs, actual_expected_homs=ht.actual_expected_homs,
+                  reported_bi=ht.reported_bi, actual_bi=ht.actual_bi).show(20)
 
 
 if __name__ == '__main__':
@@ -134,6 +165,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--find_high_ad_hets', help='Find high AD hets from public data', action='store_true')
     parser.add_argument('--find_high_ad_hets_by_sample', help='Find high AD hets from individual level data', action='store_true')
+    parser.add_argument('--recompute_ccr5_homozygosity', help='Recompute frequency and HWE for CCR5-del32', action='store_true')
     parser.add_argument('--overwrite', help='Overwrite all data', action='store_true')
     args = parser.parse_args()
 
