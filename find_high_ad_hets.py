@@ -2,6 +2,7 @@ from gnomad_hail import *
 import pickle
 
 public_root = 'gs://gnomad-public/papers/2019-high-ad-variants'
+temp_root = 'gs://gnomad-tmp/high_ad_hets'
 
 
 def build_frequency_case(mt):
@@ -106,7 +107,7 @@ def main(args):
                 number_reclassified=hl.agg.count_where(mt.GT.is_het() & (mt.AD[1] / mt.DP > 0.9)),
                 number_homvars_with_ref_support=hl.agg.count_where(mt.GT.is_hom_var() & (mt.AD[0] > 0))
             )
-            mt = mt.checkpoint(f'gs://gnomad-tmp/high_ad_hets/num_reclassified_by_sample_{data_type}.mt', overwrite=args.overwrite, _read_if_exists=not args.overwrite)
+            mt = mt.checkpoint(f'{temp_root}/num_reclassified_by_sample_{data_type}.mt', overwrite=args.overwrite, _read_if_exists=not args.overwrite)
             ht = mt.annotate_rows(mean_number_homvars_with_ref_support=hl.agg.mean(mt.number_homvars_with_ref_support),
                                   mean_number_reclassified=hl.agg.mean(mt.number_reclassified),
                                   linreg_number_reclassified=format_hail_linreg(hl.agg.linreg(mt.meta.freemix, [1.0, mt.number_reclassified])),
@@ -119,7 +120,7 @@ def main(args):
                 number_homvars_with_ref_support=hl.agg.sum(mt.number_homvars_with_ref_support),
                 freemix=mt.meta.freemix
             ).cols().key_by().drop('s')
-            ht.flatten().export(f'gs://gnomad-tmp/high_ad_hets/num_reclassified_by_sample_all_variants_{data_type}.txt.bgz')
+            ht.flatten().export(f'{temp_root}/num_reclassified_by_sample_all_variants_{data_type}.txt.bgz')
             data = ht.aggregate(linreg_number_reclassified=format_hail_linreg(hl.agg.linreg(ht.freemix, [1.0, ht.number_reclassified])),
                                 linreg_number_homvars_with_ref_support=format_hail_linreg(hl.agg.linreg(ht.freemix, [1.0, ht.number_homvars_with_ref_support])))
             pprint(dict(data))
