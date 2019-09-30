@@ -23,7 +23,7 @@ explode_hail_column = function(data, col) {
     mutate(data=as.numeric(data))
 }
 
-overall_ab_hist = function(data_type, common_indels_only=T, snps_only=F) {
+overall_ab_hist = function(data_type, common_indels_only=T, snps_only=F, save_plot=F) {
   hom_data = read_delim(paste0('data/groupings_', data_type, '.txt'), delim='\t')
   
   if (common_indels_only) {
@@ -58,6 +58,16 @@ overall_ab_hist = function(data_type, common_indels_only=T, snps_only=F) {
       geom_bar(stat='identity') + theme_classic() +
       xlab('AB for hets') + ylab('Proportion of het genotypes')
   }
+  
+  if (save_plot) {
+    pdf(paste0('overall_ab_hist_', case_when(common_indels_only ~ 'common_indels_', 
+                                             snps_only ~ 'rare_snps_',
+                                             TRUE ~ 'all_'), data_type, '.pdf'),
+        width=6, height=4)
+    print(p)
+    dev.off()
+  }
+  return(p)
 }
 
 count_hom_undercalls_by_freq_and_category = function(data_type) {
